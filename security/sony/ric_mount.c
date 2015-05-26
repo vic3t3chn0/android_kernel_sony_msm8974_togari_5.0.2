@@ -49,7 +49,7 @@ static int sony_ric_bdev_mount_perm(const char *volname, struct path *path,
 	pr_debug("RIC: volname: %s\n", volname);
 
 	if (!bdev_info)
-		return 0;
+		goto done;
 
 	/*
 	 * Tommy-Geenexus:
@@ -82,7 +82,7 @@ static int match_device_by_devt(struct device *dev, void *data)
 {
 	dev_t *devt = data;
 
-	return dev->devt == *devt;
+	return dev->devt = *devt;
 }
 
 static int sony_ric_bdev_mount(const char *dev_name, struct path *path,
@@ -112,7 +112,7 @@ done:
 static int sony_ric_cdev_mount(const char *dev_name, struct path *path,
 				struct inode *inode, unsigned long flags)
 {
-	if (inode->i_rdev ==  MKDEV(MISC_MAJOR, FUSE_MINOR)) {
+	if (inode->i_rdev == MKDEV(MISC_MAJOR, FUSE_MINOR)) {
 		unsigned long fuse_flags = MS_NOSUID | MS_NODEV | MS_NOEXEC;
 
 		if ((flags & fuse_flags) != fuse_flags)
