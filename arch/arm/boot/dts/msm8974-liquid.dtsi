@@ -41,7 +41,11 @@
 			compatible = "ti,bq28400-battery";
 			reg = <0xb>;
 			ti,temp-cold = <2>; /* degree celsius */
-			ti,temp-hot = <43>; /* degree celsius */
+			/*
+			 * Tommy-Geenexus:
+			 * lower hot temp to TI-recommended temp
+			 */
+			ti,temp-hot = <40>; /* degree celsius */
 		};
 
 		charger@2b {
