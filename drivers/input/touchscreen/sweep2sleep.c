@@ -27,13 +27,15 @@
 #include <linux/slab.h>
 #include <linux/workqueue.h>
 #include <linux/input.h>
+#include <linux/qpnp/vibrator.h>
 
 #define DRIVER_AUTHOR "Dennis Rassmann <showp1984@gmail.com>"
 #define DRIVER_DESCRIPTION "Sweep2sleep for almost any device"
 
-#define S2S_PWRKEY_DUR          	60
-#define DEFAULT_S2S_Y_MAX               1920
-#define DEFAULT_S2S_Y_LIMIT             DEFAULT_S2S_Y_MAX-130
+#define S2S_PWRKEY_DUR			60
+#define DEFAULT_S2S_Y_MAX		1920
+#define DEFAULT_S2S_Y_LIMIT_BOTTOM	DEFAULT_S2S_Y_MAX - 130
+#define DEFAULT_S2S_Y_LIMIT_TOP		100
 #define DEFAULT_S2S_X_MAX		1080
 
 /* Sweep2sleep right to left */
@@ -48,14 +50,17 @@
 
 static DEFINE_MUTEX(pwrkeyworklock);
 
-/* Sweep2sleep switch */
+/* Sweep2sleep / Vibration switches */
 static unsigned int s2s_enabled = 1;
-
+static unsigned int vib_enabled;
+static unsigned int trigger_time = 45;
+ 
 static int touch_x = 0, touch_y = 0;
 static bool touch_x_called = false, touch_y_called = false;
-static bool exec_count = true;
-static bool scr_on_touch = false, barrier[2] = {false, false};
-static bool reverse_barrier[2] = {false, false};
+static bool exec_count = true, scr_on_touch = false;
+static bool bbarrier[2] = {false, false}, tbarrier[2] = {false, false};
+static bool reverseb_barrier[2] = {false, false};
+static bool reverset_barrier[2] = {false, false};
 
 static struct input_dev *sweep2sleep_pwrdev;
 static struct workqueue_struct *s2s_input_wq;
@@ -80,45 +85,54 @@ static DECLARE_WORK(sweep2sleep_presspwr_work, sweep2sleep_presspwr);
 
 static void sweep2sleep_pwrswitch(void)
 {
+	if (vib_enabled)
+		qpnp_vib_trigger(trigger_time);
 	schedule_work(&sweep2sleep_presspwr_work);
 }
 
 static void sweep2sleep_reset(void)
 {
 	exec_count = true;
-	barrier[0] = false;
-	barrier[1] = false;
-	reverse_barrier[0] = false;
-	reverse_barrier[1] = false;
+	bbarrier[0] = false;
+	bbarrier[1] = false;
+	tbarrier[0] = false;
+	tbarrier[1] = false;
+	reverseb_barrier[0] = false;
+	reverseb_barrier[1] = false;
+	reverset_barrier[0] = false;
+	reverset_barrier[1] = false;
 	scr_on_touch = false;
 }
 
 static void detect_sweep2sleep(int sweep_coord, int sweep_height, bool st)
 {
-	int prev_coord = 0, next_coord = 0;
-	int reverse_prev_coord = 0, reverse_next_coord = 0;
+	int prevb_coord = 0, nextb_coord = 0;
+	int prevt_coord = 0, nextt_coord = 0;
+	int reverseb_prev_coord = 0, reverseb_next_coord = 0;
+	int reverset_prev_coord = 0, reverset_next_coord = 0;
 	bool single_touch = st;
 
-		/* s2s: right->left */
+		/* s2s bottom: right->left */
 	if ((single_touch) && (s2s_enabled)) {
 		scr_on_touch = true;
-		prev_coord = DEFAULT_S2S_X_B5;
-		next_coord = DEFAULT_S2S_X_B2;
-		if ((barrier[0] == true) ||
-			((sweep_coord < prev_coord) &&
-			(sweep_coord > next_coord) &&
-			(sweep_height > DEFAULT_S2S_Y_LIMIT))) {
-			prev_coord = next_coord;
-			next_coord = DEFAULT_S2S_X_B1;
-			barrier[0] = true;
-			if ((barrier[1] == true) ||
-				((sweep_coord < prev_coord) &&
-				(sweep_coord > next_coord) &&
-				(sweep_height > DEFAULT_S2S_Y_LIMIT))) {
-				prev_coord = next_coord;
-				barrier[1] = true;
-				if ((sweep_coord < prev_coord) &&
-					(sweep_height > DEFAULT_S2S_Y_LIMIT)) {
+		prevb_coord = DEFAULT_S2S_X_B5;
+		nextb_coord = DEFAULT_S2S_X_B2;
+		if ((bbarrier[0] == true) ||
+			((sweep_coord < prevb_coord) &&
+			(sweep_coord > nextb_coord) &&
+			(sweep_height > DEFAULT_S2S_Y_LIMIT_BOTTOM))) {
+			prevb_coord = nextb_coord;
+			nextb_coord = DEFAULT_S2S_X_B1;
+			bbarrier[0] = true;
+			if ((bbarrier[1] == true) ||
+				((sweep_coord < prevb_coord) &&
+				(sweep_coord > nextb_coord) &&
+				(sweep_height > DEFAULT_S2S_Y_LIMIT_BOTTOM))) {
+				prevb_coord = nextb_coord;
+				bbarrier[1] = true;
+				if ((sweep_coord < prevb_coord) &&
+					(sweep_height >
+					DEFAULT_S2S_Y_LIMIT_BOTTOM)) {
 					if (sweep_coord < DEFAULT_S2S_X_B0) {
 						if (exec_count) {
 							sweep2sleep_pwrswitch();
@@ -128,24 +142,81 @@ static void detect_sweep2sleep(int sweep_coord, int sweep_height, bool st)
 				}
 			}
 		}
-		/* s2s: left->right */
-		reverse_prev_coord = DEFAULT_S2S_X_B0;
-		reverse_next_coord = DEFAULT_S2S_X_B3;
-		if ((reverse_barrier[0] == true) ||
-			((sweep_coord > reverse_prev_coord) &&
-			(sweep_coord < reverse_next_coord) &&
-			(sweep_height > DEFAULT_S2S_Y_LIMIT))) {
-			reverse_prev_coord = reverse_next_coord;
-			reverse_next_coord = DEFAULT_S2S_X_B4;
-			reverse_barrier[0] = true;
-			if ((reverse_barrier[1] == true) ||
-				((sweep_coord > reverse_prev_coord) &&
-				(sweep_coord < reverse_next_coord) &&
-				(sweep_height > DEFAULT_S2S_Y_LIMIT))) {
-				reverse_prev_coord = reverse_next_coord;
-				reverse_barrier[1] = true;
-				if ((sweep_coord > reverse_prev_coord) &&
-					(sweep_height > DEFAULT_S2S_Y_LIMIT)) {
+		/* s2s bottom: left->right */
+		reverseb_prev_coord = DEFAULT_S2S_X_B0;
+		reverseb_next_coord = DEFAULT_S2S_X_B3;
+		if ((reverseb_barrier[0] == true) ||
+			((sweep_coord > reverseb_prev_coord) &&
+			(sweep_coord < reverseb_next_coord) &&
+			(sweep_height > DEFAULT_S2S_Y_LIMIT_BOTTOM))) {
+			reverseb_prev_coord = reverseb_next_coord;
+			reverseb_next_coord = DEFAULT_S2S_X_B4;
+			reverseb_barrier[0] = true;
+			if ((reverseb_barrier[1] == true) ||
+				((sweep_coord > reverseb_prev_coord) &&
+				(sweep_coord < reverseb_next_coord) &&
+				(sweep_height > DEFAULT_S2S_Y_LIMIT_BOTTOM))) {
+				reverseb_prev_coord = reverseb_next_coord;
+				reverseb_barrier[1] = true;
+				if ((sweep_coord > reverseb_prev_coord) &&
+					(sweep_height >
+					DEFAULT_S2S_Y_LIMIT_BOTTOM)) {
+					if (sweep_coord > DEFAULT_S2S_X_B5) {
+						if (exec_count) {
+							sweep2sleep_pwrswitch();
+							exec_count = false;
+						}
+					}
+				}
+			}
+		}
+		/* s2s top: right->left */
+		prevt_coord = DEFAULT_S2S_X_B5;
+		nextt_coord = DEFAULT_S2S_X_B2;
+		if ((tbarrier[0] == true) ||
+			((sweep_coord < prevt_coord) &&
+			(sweep_coord > nextt_coord) &&
+			(sweep_height < DEFAULT_S2S_Y_LIMIT_TOP))) {
+			prevt_coord = nextt_coord;
+			nextt_coord = DEFAULT_S2S_X_B1;
+			tbarrier[0] = true;
+			if ((tbarrier[1] == true) ||
+				((sweep_coord < prevt_coord) &&
+				(sweep_coord > nextt_coord) &&
+				(sweep_height < DEFAULT_S2S_Y_LIMIT_TOP))) {
+				prevt_coord = nextt_coord;
+				tbarrier[1] = true;
+				if ((sweep_coord < prevt_coord) &&
+					(sweep_height <
+					DEFAULT_S2S_Y_LIMIT_TOP)) {
+					if (sweep_coord < DEFAULT_S2S_X_B0) {
+						if (exec_count) {
+							sweep2sleep_pwrswitch();
+							exec_count = false;
+						}
+					}
+				}
+			}
+		}
+		/* s2s top: left->right */
+		reverset_prev_coord = DEFAULT_S2S_X_B0;
+		reverset_next_coord = DEFAULT_S2S_X_B3;
+		if ((reverset_barrier[0] == true) ||
+			((sweep_coord > reverset_prev_coord) &&
+			(sweep_coord < reverset_next_coord) &&
+			(sweep_height < DEFAULT_S2S_Y_LIMIT_TOP))) {
+			reverset_prev_coord = reverset_next_coord;
+			reverset_next_coord = DEFAULT_S2S_X_B4;
+			reverset_barrier[0] = true;
+			if ((reverset_barrier[1] == true) ||
+				((sweep_coord > reverset_prev_coord) &&
+				(sweep_coord < reverset_next_coord) &&
+				(sweep_height < DEFAULT_S2S_Y_LIMIT_TOP))) {
+				reverset_prev_coord = reverseb_next_coord;
+				reverset_barrier[1] = true;
+				if ((sweep_coord > reverset_prev_coord) &&
+					(sweep_height <
+					DEFAULT_S2S_Y_LIMIT_TOP)) {
 					if (sweep_coord > DEFAULT_S2S_X_B5) {
 						if (exec_count) {
 							sweep2sleep_pwrswitch();
@@ -160,7 +231,6 @@ static void detect_sweep2sleep(int sweep_coord, int sweep_height, bool st)
 
 static void s2s_input_callback(struct work_struct *unused)
 {
-
 	detect_sweep2sleep(touch_x, touch_y, true);
 }
 
@@ -265,6 +335,15 @@ static ssize_t sweep2sleep_show(struct device *dev,
 	return strnlen(buf, PAGE_SIZE);
 }
 
+static ssize_t vib_enabled_show(struct device *dev,
+				struct device_attribute *attr,
+				char *buf)
+{
+	snprintf(buf, PAGE_SIZE, "%u", vib_enabled);
+
+	return strnlen(buf, PAGE_SIZE);
+}
+
 static ssize_t sweep2sleep_store(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t size)
@@ -279,8 +358,25 @@ static ssize_t sweep2sleep_store(struct device *dev,
 	return strnlen(buf, PAGE_SIZE);
 }
 
+static ssize_t vib_enabled_store(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf, size_t size)
+{
+	if (sysfs_streq(buf, "1"))
+		vib_enabled = 1;
+	else if (sysfs_streq(buf, "0"))
+		vib_enabled = 0;
+	else
+		return -EINVAL;
+
+	return strnlen(buf, PAGE_SIZE);
+}
+
 static DEVICE_ATTR(sweep2sleep, (S_IRUGO | S_IWUSR),
 	sweep2sleep_show, sweep2sleep_store);
+
+static DEVICE_ATTR(vib_enabled, (S_IRUGO | S_IWUSR),
+	vib_enabled_show, vib_enabled_store);
 
 static int __init sweep2sleep_init(void)
 {
@@ -312,8 +408,10 @@ static int __init sweep2sleep_init(void)
 	INIT_WORK(&s2s_input_work, s2s_input_callback);
 
 	rc = input_register_handler(&s2s_input_handler);
-	if (rc)
+	if (rc) {
 		pr_err("Failed to register s2s_input_handler\n");
+		return rc;
+	}
 
 	sweep2sleep_kobj = kobject_create_and_add("sweep2sleep", NULL) ;
 	if (!sweep2sleep_kobj) {
@@ -324,12 +422,21 @@ static int __init sweep2sleep_init(void)
 	rc = sysfs_create_file(sweep2sleep_kobj, &dev_attr_sweep2sleep.attr);
 	if (rc) {
 		pr_err("sysfs_create_file failed for sweep2sleep\n");
-		kobject_del(sweep2sleep_kobj);
-		kobject_put(sweep2sleep_kobj);
-		return rc;
+		goto sysfs_err;
+	}
+
+	rc = sysfs_create_file(sweep2sleep_kobj, &dev_attr_vib_enabled.attr);
+	if (rc) {
+		pr_err("sysfs_create_file failed for sweep2sleep\n");
+		goto sysfs_err;
 	}
 
 	return 0;
+
+sysfs_err:
+	kobject_del(sweep2sleep_kobj);
+	kobject_put(sweep2sleep_kobj);
+	return rc;
 }
 
 static void __exit sweep2sleep_exit(void)
